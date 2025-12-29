@@ -44,3 +44,60 @@ Pull Request는 협업 개발 환경에서 코드 변경 사항을 제안하고 
 ```
 <hr>
 
+## PR merge 이후
+squash & merge를 사용하여 커밋하신 경우에는  다음과 같은 방법을 실행해주세요.
+
+### squash & merge 직후 dev 브랜치를 바로 최신 main 기준으로 rebase 해주세요.
+
+- (권장) dev가 main을 정기적으로 따라가도록 머지/리베이스 주기를 짧게 가져가면 충돌이 확 줄어듭니다.
+**dev를 main 기준으로 rebase**
+```bash
+# 최신 상태 받기
+git fetch origin
+
+# dev로 이동
+git checkout dev
+
+# 원격 dev를 기준으로 맞춘 뒤 (로컬 dev가 꼬여있을 수 있어서 권장)
+git reset --hard origin/dev
+
+# main 최신을 dev 위로 rebase
+git rebase origin/main
+
+# 충돌 나면 해결 후:
+# git add <해결한파일들>
+# git rebase --continue
+
+# dev 업데이트 푸시 (rebase라 force-with-lease 권장)
+git push --force-with-lease origin dev
+```
+
+각자 작업 브랜치도 dev 기준으로 다시 rebase
+```
+git fetch origin
+
+# 작업 브랜치로 이동
+git checkout feature/<branch-name>
+
+# 최신 dev를 기준으로 rebase
+git rebase origin/dev
+
+# 충돌 나면 해결 후:
+# git add <해결한파일들>
+# git rebase --continue
+
+# 작업 브랜치도 rebase 했으니 push는 force-with-lease
+git push --force-with-lease origin feature/<branch-name>
+```
+
+### 특히 DLL/바이너리 같은 빌드 산출물이 dev에 포함되어 있으면, squash 이후 히스토리가 바뀌면서 충돌이 거의 필연적으로 생길 수 있습니다.
+
+- 가능하면 DLL은 PR에 포함하지 말고, main 머지 이후 CI에서 빌드해서 Release/Artifacts로 배포하는 방식으로 분리하는 걸 추천드립니다.
+  - PR마다 바이너리가 바뀌면 squash/rebase 여부와 관계없이 충돌이 쉽게 납니다. 
+
+### 만약 당장 구조 변경이 어렵다면, 최소한 squash 이후에는
+
+- dev를 최신 main으로 rebase 받은 뒤
+
+- 각자 작업 브랜치도 dev 기준으로 다시 rebase 해서 진행해주세요.
+이렇게 하면 “머지된 내용과 로컬 작업 내용의 기준점”이 맞춰져서 불필요한 충돌이 줄어듭니다.
