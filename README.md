@@ -16,3 +16,4 @@ Portal301 프로젝트의 협업 규약 문서입니다.
 | [PR Convention](./Git/PR%20Convention.md) | Pull Request 가이드 |
 | [PlantUML](./PlantUML/PlantUML.md) | UML 다이어그램 도구 |
 | [Test Code](./TestCode/Testcode.md) | 테스트 코드 작성법 |
+| [Python pytest](./TestCode/Python-pytest.md) | Python 테스트 상세 가이드 |
