@@ -1,50 +1,114 @@
-# Python Test Code (pytest)
+# Python Test Code (pytest + uv)
 
-## 설치
+## 철학
+
+> **테스트는 코드의 스펙이다**
+
+- 테스트 코드는 "이 코드가 어떻게 동작해야 하는지"를 문서화한다
+- 테스트가 없으면 리팩토링할 수 없다
+- CI에서 돌아가지 않는 테스트는 테스트가 아니다
+
+---
+
+## uv (패키지 매니저)
+
+### uv란?
+
+Rust로 작성된 초고속 Python 패키지 매니저. pip, venv, pyenv를 대체합니다.
+
+### 설치
 
 ```bash
-pip install pytest pytest-cov
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Mac/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### 프로젝트 초기화
+
+```bash
+# 새 프로젝트 생성
+uv init my-project
+cd my-project
+
+# Python 버전 지정
+uv python pin 3.11
+
+# 가상환경 생성 + 의존성 설치
+uv sync
+```
+
+### 의존성 관리
+
+```bash
+# 프로덕션 의존성 추가
+uv add fastapi pydantic
+
+# 개발 의존성 추가 (테스트, 린터 등)
+uv add --group dev pytest pytest-cov pytest-asyncio ruff mypy
+
+# 의존성 제거
+uv remove package-name
+
+# lock 파일 갱신
+uv lock
+
+# 설치
+uv sync
+```
+
+### 실행
+
+```bash
+# 가상환경 내 Python 실행
+uv run python main.py
+
+# 가상환경 내 pytest 실행
+uv run pytest
+
+# 가상환경 활성화 (선택)
+# Windows
+.venv\Scripts\activate
+# Mac/Linux
+source .venv/bin/activate
 ```
 
 ---
 
-## 실행
+## pyproject.toml 설정
 
-```bash
-# 전체 테스트
-pytest
+```toml
+[project]
+name = "my-project"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "fastapi>=0.100.0",
+    "pydantic>=2.0.0",
+]
 
-# 특정 파일
-pytest tests/test_user.py
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
 
-# 특정 함수
-pytest tests/test_user.py::test_login
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = ["*/tests/*", "*/__pycache__/*"]
 
-# 상세 출력
-pytest -v
-
-# 실패 시 즉시 중단
-pytest -x
-
-# 커버리지 포함
-pytest --cov=src tests/
-```
-
----
-
-## 프로젝트 구조
-
-```
-project/
-├── src/
-│   └── account.py
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py      # 공통 fixture
-│   ├── test_account.py
-│   └── test_user.py
-├── pytest.ini           # pytest 설정
-└── requirements.txt
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
 ```
 
 ---
@@ -53,17 +117,142 @@ project/
 
 ```ini
 [pytest]
-testpaths = tests
-python_files = test_*.py
-python_functions = test_*
-addopts = -v --tb=short
+asyncio_mode = auto
+asyncio_default_fixture_loop_scope = function
+log_cli = true
+log_cli_level = INFO
+pythonpath = .
+```
+
+| 설정 | 설명 |
+|------|------|
+| `asyncio_mode = auto` | async 함수 자동 인식 |
+| `log_cli = true` | 테스트 중 로그 출력 |
+| `pythonpath = .` | 프로젝트 루트에서 import 가능 |
+
+---
+
+## 테스트 실행
+
+```bash
+# 전체 테스트
+uv run pytest
+
+# 특정 폴더
+uv run pytest tests/ci/
+
+# 특정 파일
+uv run pytest tests/ci/api/test_session.py
+
+# 특정 함수
+uv run pytest tests/ci/api/test_session.py::test_create_session
+
+# 상세 출력
+uv run pytest -v
+
+# 커버리지 포함
+uv run pytest --cov=src --cov-report=html
 ```
 
 ---
 
-## 기본 테스트 작성
+## 프로젝트 구조
 
-### Given-When-Then 패턴
+```
+project/
+├── src/                    # 소스 코드
+│   ├── api/
+│   ├── framework/
+│   └── utils/
+├── tests/
+│   ├── conftest.py         # 공통 fixture
+│   ├── ci/                  # CI 자동화 테스트
+│   │   ├── api/
+│   │   ├── integration/
+│   │   └── models/
+│   └── manual/              # 수동 실행 테스트 (하드웨어 등)
+├── pyproject.toml
+├── pytest.ini
+└── uv.lock
+```
+
+### 테스트 분류 철학
+
+| 폴더 | 용도 | CI 실행 |
+|------|------|---------|
+| `tests/ci/` | 자동화 테스트 (외부 의존성 없음) | O |
+| `tests/manual/` | 하드웨어, 외부 시스템 연동 테스트 | X |
+| `tests/integration/` | 통합 테스트 | 선택적 |
+
+---
+
+## conftest.py 활용
+
+### 공통 fixture 정의
+
+```python
+# tests/conftest.py
+import pytest
+from pathlib import Path
+
+# 테스트 상수
+TEST_SESSION_NAME = "test_session"
+
+@pytest.fixture(scope="function", autouse=True)
+def setup_test_environment():
+    """각 테스트 전 환경 설정, 후 정리"""
+    # Setup
+    create_test_dirs()
+    yield
+    # Teardown
+    cleanup_test_dirs()
+
+@pytest.fixture(autouse=True)
+def reset_singletons():
+    """싱글톤 객체 리셋 (테스트 격리)"""
+    MySingleton._reset_for_testing()
+    yield
+    MySingleton._reset_for_testing()
+```
+
+### Mock 객체 정의
+
+```python
+class MockRobot:
+    """테스트용 Mock Robot"""
+    def __init__(self, name: str = "mock_robot"):
+        self.name = name
+        self._state = "ready"
+
+    def set_ready(self, ready: bool = True):
+        """테스트용: 상태 직접 설정"""
+        self._state = "ready" if ready else "error"
+
+@pytest.fixture
+def mock_robot():
+    return MockRobot()
+```
+
+### 비동기 유틸리티
+
+```python
+async def wait_for_status(obj, expected_status, timeout: float = 1.0) -> bool:
+    """
+    상태가 expected_status가 될 때까지 대기
+    고정 sleep 대신 명시적 상태 확인으로 flaky test 방지
+    """
+    import asyncio
+    start = asyncio.get_event_loop().time()
+    while asyncio.get_event_loop().time() - start < timeout:
+        if obj.status == expected_status:
+            return True
+        await asyncio.sleep(0.01)
+    return False
+```
+
+---
+
+## Given-When-Then 패턴
 
 ```python
 def test_account_deposit():
@@ -78,30 +267,35 @@ def test_account_deposit():
     assert account.balance == 100
 ```
 
-### 예외 테스트
+---
+
+## 비동기 테스트
 
 ```python
 import pytest
 
-def test_withdraw_insufficient_funds():
-    """잔고 부족 시 ValueError 발생"""
-    account = Account("Bob", balance=50)
+@pytest.mark.asyncio
+async def test_async_api_call():
+    """비동기 API 호출 테스트"""
+    # Given
+    client = AsyncClient()
 
-    with pytest.raises(ValueError, match="Insufficient funds"):
-        account.withdraw(100)
+    # When
+    result = await client.fetch("/users/1")
+
+    # Then
+    assert result["id"] == 1
 ```
+
+> `asyncio_mode = auto` 설정 시 `@pytest.mark.asyncio` 생략 가능
 
 ---
 
 ## Fixture
 
-테스트에 필요한 객체를 재사용 가능하게 정의
-
 ### 기본 Fixture
 
 ```python
-import pytest
-
 @pytest.fixture
 def account():
     """테스트용 계좌 생성"""
@@ -110,27 +304,6 @@ def account():
 def test_withdraw(account):
     account.withdraw(500)
     assert account.balance == 500
-```
-
-### conftest.py (공통 Fixture)
-
-`tests/conftest.py`에 정의하면 모든 테스트에서 사용 가능
-
-```python
-# tests/conftest.py
-import pytest
-
-@pytest.fixture
-def db_connection():
-    """테스트용 DB 연결"""
-    conn = create_test_db()
-    yield conn
-    conn.close()
-
-@pytest.fixture
-def sample_user(db_connection):
-    """테스트용 사용자"""
-    return User.create(db_connection, name="Test")
 ```
 
 ### Fixture Scope
@@ -146,11 +319,7 @@ def sample_user(db_connection):
 
 ## Parametrize
 
-여러 입력값으로 같은 테스트 반복
-
 ```python
-import pytest
-
 @pytest.mark.parametrize("amount,expected", [
     (100, 100),
     (200, 200),
@@ -162,52 +331,12 @@ def test_deposit_amounts(amount, expected):
     assert account.balance == expected
 ```
 
-### 여러 파라미터 조합
-
-```python
-@pytest.mark.parametrize("x", [1, 2])
-@pytest.mark.parametrize("y", [10, 20])
-def test_multiply(x, y):
-    # (1,10), (1,20), (2,10), (2,20) 4가지 조합 테스트
-    assert x * y > 0
-```
-
----
-
-## Mark (테스트 분류)
-
-```python
-import pytest
-
-@pytest.mark.slow
-def test_heavy_computation():
-    """시간이 오래 걸리는 테스트"""
-    pass
-
-@pytest.mark.skip(reason="아직 구현 안됨")
-def test_future_feature():
-    pass
-
-@pytest.mark.skipif(sys.platform == "win32", reason="Linux only")
-def test_linux_only():
-    pass
-```
-
-### 특정 Mark만 실행
-
-```bash
-pytest -m slow           # slow 마크만
-pytest -m "not slow"     # slow 제외
-```
-
 ---
 
 ## Mock
 
-외부 의존성 대체
-
 ```python
-from unittest.mock import Mock, patch
+from unittest.mock import patch, AsyncMock
 
 def test_api_call():
     """외부 API 호출 모킹"""
@@ -219,90 +348,78 @@ def test_api_call():
 
         assert result["id"] == 1
         mock_get.assert_called_once()
-```
 
-### Fixture로 Mock 관리
-
-```python
-@pytest.fixture
-def mock_db():
-    with patch("app.database.connect") as mock:
-        mock.return_value = FakeDB()
-        yield mock
+@pytest.mark.asyncio
+async def test_async_mock():
+    """비동기 함수 모킹"""
+    with patch("module.async_func", new=AsyncMock(return_value="ok")):
+        result = await some_async_function()
+        assert result == "ok"
 ```
 
 ---
 
 ## 커버리지
 
-### 실행
-
 ```bash
 # 기본
-pytest --cov=src tests/
+uv run pytest --cov=src
 
 # HTML 리포트
-pytest --cov=src --cov-report=html tests/
+uv run pytest --cov=src --cov-report=html
+
+# XML 리포트 (CI용)
+uv run pytest --cov=src --cov-report=xml
 
 # 최소 커버리지 강제
-pytest --cov=src --cov-fail-under=80 tests/
-```
-
-### .coveragerc 설정
-
-```ini
-[run]
-source = src
-omit =
-    */tests/*
-    */__init__.py
-
-[report]
-exclude_lines =
-    pragma: no cover
-    if __name__ == .__main__.:
+uv run pytest --cov=src --cov-fail-under=80
 ```
 
 ---
 
-## 자주 사용하는 Assert
-
-```python
-# 값 비교
-assert result == expected
-assert result != unexpected
-assert result > 0
-
-# 컬렉션
-assert item in collection
-assert len(items) == 3
-assert all(x > 0 for x in items)
-
-# 타입
-assert isinstance(obj, MyClass)
-
-# None
-assert result is None
-assert result is not None
-
-# 근사값 (float)
-assert result == pytest.approx(3.14, rel=1e-3)
-```
-
----
-
-## 디버깅 팁
+## 디버깅
 
 ```bash
 # 실패한 테스트만 재실행
-pytest --lf
+uv run pytest --lf
 
 # print 출력 보기
-pytest -s
+uv run pytest -s
 
 # 디버거 진입 (실패 시)
-pytest --pdb
+uv run pytest --pdb
 
-# 첫 실패 후 디버거
-pytest -x --pdb
+# 첫 실패 후 중단
+uv run pytest -x
+```
+
+---
+
+## CI 설정 예시 (GitHub Actions)
+
+```yaml
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run tests
+        run: uv run pytest tests/ci/ --cov=src --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
 ```
