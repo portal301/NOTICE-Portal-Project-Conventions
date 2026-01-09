@@ -335,26 +335,216 @@ def test_deposit_amounts(amount, expected):
 
 ## Mock
 
+### 기본 개념
+
+| 용어 | 설명 |
+|------|------|
+| Mock | 호출 기록을 추적하는 가짜 객체 |
+| MagicMock | Mock + 매직 메서드 자동 지원 |
+| patch | 특정 객체를 임시로 Mock으로 교체 |
+| AsyncMock | 비동기 함수용 Mock |
+
+### 기본 Mock 사용
+
 ```python
-from unittest.mock import patch, AsyncMock
+from unittest.mock import Mock, MagicMock
 
-def test_api_call():
-    """외부 API 호출 모킹"""
-    with patch("requests.get") as mock_get:
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {"id": 1}
+def test_basic_mock():
+    # Mock 객체 생성
+    mock_service = Mock()
 
-        result = fetch_user(1)
+    # 반환값 설정
+    mock_service.get_user.return_value = {"id": 1, "name": "Alice"}
 
-        assert result["id"] == 1
-        mock_get.assert_called_once()
+    # 호출
+    result = mock_service.get_user(1)
+
+    # 검증
+    assert result["name"] == "Alice"
+    mock_service.get_user.assert_called_once_with(1)
+```
+
+### patch 데코레이터
+
+```python
+from unittest.mock import patch
+
+# 방법 1: 데코레이터
+@patch("module.external_api.fetch")
+def test_with_decorator(mock_fetch):
+    mock_fetch.return_value = {"data": "ok"}
+    result = my_function()
+    assert result == {"data": "ok"}
+
+# 방법 2: context manager
+def test_with_context():
+    with patch("module.external_api.fetch") as mock_fetch:
+        mock_fetch.return_value = {"data": "ok"}
+        result = my_function()
+        assert result == {"data": "ok"}
+```
+
+### patch 경로 규칙
+
+```python
+# myapp/service.py
+from external_lib import api_client
+
+def fetch_data():
+    return api_client.get("/data")
+
+# tests/test_service.py
+# patch 경로는 "사용하는 곳" 기준
+@patch("myapp.service.api_client")  # O - 사용하는 모듈 기준
+@patch("external_lib.api_client")   # X - 정의된 모듈 기준 (동작 안 함)
+def test_fetch(mock_client):
+    mock_client.get.return_value = {"ok": True}
+    result = fetch_data()
+    assert result == {"ok": True}
+```
+
+### 비동기 Mock
+
+```python
+from unittest.mock import AsyncMock, patch
 
 @pytest.mark.asyncio
-async def test_async_mock():
-    """비동기 함수 모킹"""
-    with patch("module.async_func", new=AsyncMock(return_value="ok")):
+async def test_async_function():
+    with patch("module.async_api", new=AsyncMock(return_value="ok")):
         result = await some_async_function()
         assert result == "ok"
+
+# AsyncMock 직접 생성
+async def test_async_mock_direct():
+    mock_client = AsyncMock()
+    mock_client.fetch.return_value = {"id": 1}
+
+    result = await mock_client.fetch("/users/1")
+    assert result == {"id": 1}
+```
+
+### side_effect 활용
+
+```python
+from unittest.mock import Mock
+
+# 예외 발생
+def test_exception():
+    mock_api = Mock()
+    mock_api.call.side_effect = ValueError("API Error")
+
+    with pytest.raises(ValueError, match="API Error"):
+        mock_api.call()
+
+# 순차적 반환값
+def test_sequence():
+    mock_api = Mock()
+    mock_api.call.side_effect = [1, 2, 3]
+
+    assert mock_api.call() == 1
+    assert mock_api.call() == 2
+    assert mock_api.call() == 3
+
+# 함수로 동적 처리
+def test_dynamic():
+    def dynamic_return(x):
+        return x * 2
+
+    mock_api = Mock()
+    mock_api.calculate.side_effect = dynamic_return
+
+    assert mock_api.calculate(5) == 10
+```
+
+### 호출 검증
+
+```python
+from unittest.mock import Mock, call
+
+mock_api = Mock()
+mock_api.send("hello")
+mock_api.send("world")
+
+# 호출 여부
+mock_api.send.assert_called()              # 한 번 이상 호출됨
+mock_api.send.assert_called_once()         # X - 2번 호출됨
+mock_api.send.assert_called_with("world")  # 마지막 호출 인자
+
+# 호출 횟수
+assert mock_api.send.call_count == 2
+
+# 모든 호출 검증
+mock_api.send.assert_has_calls([
+    call("hello"),
+    call("world")
+])
+```
+
+### Fixture로 Mock 관리
+
+```python
+# conftest.py
+import pytest
+from unittest.mock import patch, AsyncMock
+
+@pytest.fixture
+def mock_database():
+    with patch("app.db.connection") as mock:
+        mock.query.return_value = []
+        yield mock
+
+@pytest.fixture
+def mock_external_api():
+    with patch("app.api.client", new=AsyncMock()) as mock:
+        mock.fetch.return_value = {"status": "ok"}
+        yield mock
+
+# test_service.py
+def test_with_mocked_db(mock_database):
+    mock_database.query.return_value = [{"id": 1}]
+    result = get_users()
+    assert len(result) == 1
+```
+
+### 클래스 Mock (spec 사용)
+
+```python
+from unittest.mock import Mock, create_autospec
+
+class RealService:
+    def get_data(self, id: int) -> dict:
+        pass
+
+    def save(self, data: dict) -> bool:
+        pass
+
+# spec으로 인터페이스 강제
+def test_with_spec():
+    mock_service = create_autospec(RealService)
+    mock_service.get_data.return_value = {"id": 1}
+
+    # 존재하지 않는 메서드 호출 시 에러
+    # mock_service.undefined_method()  # AttributeError
+
+    result = mock_service.get_data(1)
+    assert result == {"id": 1}
+```
+
+### PropertyMock
+
+```python
+from unittest.mock import PropertyMock, patch
+
+class User:
+    @property
+    def is_active(self):
+        return self._check_status()
+
+def test_property_mock():
+    with patch.object(User, "is_active", new_callable=PropertyMock) as mock:
+        mock.return_value = True
+        user = User()
+        assert user.is_active == True
 ```
 
 ---
